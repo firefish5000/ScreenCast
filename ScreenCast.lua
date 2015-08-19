@@ -10,9 +10,15 @@ local menubar = require("menubar")
 local Events = require("Objects/Events") -- Event handler
 
 local ScreenCast = {
-	recording = 0,
-	events = nil,
-	icon='/usr/share/icons/gnome/48x48/actions/media-record.png'
+	icon='/usr/share/icons/gnome/48x48/actions/media-record.png',
+	default	= { -- copied by new
+		-- TODO Add a means of clearing. default.clear? Perhaps copy IdleScript's Generative Functions
+		recording = 0,
+		events	= {},
+		widget	= {},
+		textw	= {},
+		imgw	= {},
+	},
 }
 
 -----------------------
@@ -43,42 +49,48 @@ end
 -----------------------
 
 function ScreenCast:init()
-	local s = {}
-	s.recording = 0
-	s.events = Events.new()
-	s.widget = wibox.layout.fixed.horizontal()
-	s.textw = wibox.widget.textbox()
-	s.imgw = wibox.widget.imagebox()
-	s.widget:add(s.imgw)
-	s.widget:add(s.textw)
-	s = TableCopy(self,s)
+	self.recording = 0
+	self.events = Events.new()
+	self.widget = wibox.layout.fixed.horizontal()
+	self.textw = wibox.widget.textbox()
+	self.imgw = wibox.widget.imagebox()
+	self.widget:add(self.imgw)
+	self.widget:add(self.textw)
 	
-	s.events:add_call("ScreenCast::StartRecording", function(args)
-		s.recording=1
-		s.imgw:set_image(s.icon)
-		s.textw:set_text(" Recording ")
---		s.widget.visible=true;
---		s.imgw.visible=true;
---		s.textw.visible=true;
+	self.events:new_event("ScreenCast::StartRecording")
+	self.events:new_event("ScreenCast::StopRecording")
+
+	self.events:add_call("ScreenCast::StartRecording", function(args)
+		self.recording=1
+		self.imgw:set_image(self.icon)
+		self.textw:set_text(" Recording ")
+--		self.widget.visible=true;
+--		self.imgw.visible=true;
+--		self.textw.visible=true;
 	end)
-	s.events:add_call("ScreenCast::StartRecording", function(args)
-		s:Record(args)
+	self.events:add_call("ScreenCast::StartRecording", function(args)
+		self:Record(args)
 	end)
 	
-	s.events:add_call("ScreenCast::StopRecording", function()
+	self.events:add_call("ScreenCast::StopRecording", function()
 		MkLaunch{bg=1,cmd="kill \"$(cat /tmp/ScreenCast.pid)\""   }()
-		s.recording=0
-		s.imgw:set_image(nil)
-		s.textw:set_text("")
---		s.widget.visible=false;
---		s.imgw.visible=false;
---		s.textw.visible=false;
+		self.recording=0
+		self.imgw:set_image(nil)
+		self.textw:set_text("")
+--		self.widget.visible=false;
+--		self.imgw.visible=false;
+--		self.textw.visible=false;
 	end)
 
-	self=s
-	return s
+	return self
 end
 
+function ScreenCast:new()
+	local original = self or ScreenCast
+	local s = TableCopy(original, original.default)
+	s:init()
+	return s
+end
 
 
 function ScreenCast:start(args)
