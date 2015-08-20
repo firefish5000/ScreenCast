@@ -10,7 +10,18 @@ local menubar = require("menubar")
 local Events = require("Objects/Events") -- Event handler
 
 local ScreenCast = {
-	icon='/usr/share/icons/gnome/48x48/actions/media-record.png',
+	widget={},
+	screencast = {
+		recording=0,
+		icon='/usr/share/icons/gnome/48x48/actions/media-record.png',
+		imgw={},
+		textw={},
+	},
+	screenshot = {
+		icon='/usr/share/icons/Faenza/apps/scalable/shotwell.svg',
+		imgw={},
+		textw={},
+	},
 	default	= { -- copied by new
 		-- TODO Add a means of clearing. default.clear? Perhaps copy IdleScript's Generative Functions
 		recording = 0,
@@ -18,12 +29,30 @@ local ScreenCast = {
 		widget	= {},
 		textw	= {},
 		imgw	= {},
+		cmd		= nil,
 	},
 }
+
+local asyncshell = require("Modules/asyncshell")
+require("components/helpers")
 
 -----------------------
 -- Helper Functions {{{
 -----------------------
+local function execute_once(delay, func)
+   if delay == nil or delay < 0 then delay = 0 end
+   local t = timer({ timeout = delay })
+   t:connect_signal("timeout", function()
+      t:stop()
+      func()
+   end)
+   if delay > 0 then
+      t:start()
+   else
+      func()
+   end
+   return t
+end
 local function TableOverwrite(orig,newvals)
 	newvals = newvals or {}
 	for k,v in pairs(newvals) do
@@ -48,25 +77,36 @@ end
 -- Helper Functions }}}
 -----------------------
 
+---------------------
+-- Screen Casting {{{
+
 function ScreenCast:init()
-	self.recording = 0
 	self.events = Events.new()
 	self.widget = wibox.layout.fixed.horizontal()
-	self.textw = wibox.widget.textbox()
-	self.imgw = wibox.widget.imagebox()
-	self.widget:add(self.imgw)
-	self.widget:add(self.textw)
-	
+	self:screencast_init()
+	self:screenshot_init()
+	self.widget:add(self.screencast.imgw)
+	self.widget:add(self.screencast.textw)
+	self.widget:add(self.screenshot.imgw)
+	self.widget:add(self.screenshot.textw)
+
+	return self
+end
+function ScreenCast:screencast_init()
+	-- Set vars
+	self.screencast.recording = 0
+	-- Create Widgits
+	self.screencast.textw = wibox.widget.textbox()
+	self.screencast.imgw = wibox.widget.imagebox()
+
+	-- Create and Register Events
 	self.events:new_event("ScreenCast::StartRecording")
 	self.events:new_event("ScreenCast::StopRecording")
 
 	self.events:add_call("ScreenCast::StartRecording", function(args)
-		self.recording=1
-		self.imgw:set_image(self.icon)
-		self.textw:set_text(" Recording ")
---		self.widget.visible=true;
---		self.imgw.visible=true;
---		self.textw.visible=true;
+		self.screencast.recording=1
+		self.screencast.imgw:set_image(self.screencast.icon)
+		self.screencast.textw:set_text(" Recording ")
 	end)
 	self.events:add_call("ScreenCast::StartRecording", function(args)
 		self:Record(args)
@@ -74,16 +114,41 @@ function ScreenCast:init()
 	
 	self.events:add_call("ScreenCast::StopRecording", function()
 		MkLaunch{bg=1,cmd="kill \"$(cat /tmp/ScreenCast.pid)\""   }()
-		self.recording=0
-		self.imgw:set_image(nil)
-		self.textw:set_text("")
---		self.widget.visible=false;
---		self.imgw.visible=false;
---		self.textw.visible=false;
+		self.screencast.recording=0
+		self.screencast.imgw:set_image(nil)
+		self.screencast.textw:set_text("")
 	end)
-
 	return self
 end
+function ScreenCast:screenshot_init()
+
+	self.screenshot.textw = wibox.widget.textbox()
+	self.screenshot.imgw = wibox.widget.imagebox()
+
+	-- Events
+	self.events:new_event("ScreenShot::Pending")
+	self.events:new_event("ScreenShot::Taken")
+
+	self.events:add_call("ScreenShot::Pending", function(args)
+		local file = args.file or "<NoFile>"
+		if args.show_pending ~= true then
+			return
+		end
+		self.screenshot.imgw:set_image(self.screenshot.icon)
+		self.screenshot.textw:set_text(" Taking SelectionShot. Will Save at: '" .. file .. "'" )
+	end)
+	self.events:add_call("ScreenShot::Taken", function(args)
+		local file = args.file or "<NoFile>"
+		self.screenshot.imgw:set_image(self.screenshot.icon)
+		self.screenshot.textw:set_text(" Took Screenshot. Saved at: '" .. file .. "'" )
+		execute_once(10, function()
+			self.screenshot.imgw:set_image(nil)
+			self.screenshot.textw:set_text("")
+		end)
+	end)
+	return self
+end
+
 
 function ScreenCast:new()
 	local original = self or ScreenCast
@@ -94,19 +159,19 @@ end
 
 
 function ScreenCast:start(args)
-	if self.recording ~= 1 then
+	if self.screencast.recording ~= 1 then
 		self.events:poll("ScreenCast::StartRecording",args)
 	end
 end
 
 
 function ScreenCast:stop()
-	if self.recording == 1 then
+	if self.screencast.recording == 1 then
 		self.events:poll("ScreenCast::StopRecording")
 	end
 end
 function ScreenCast:toggle(args)
-	if self.recording ~= 1 then
+	if self.screencast.recording ~= 1 then
 		self.events:poll("ScreenCast::StartRecording",args)
 	else
 		self.events:poll("ScreenCast::StopRecording")
@@ -147,6 +212,60 @@ function ScreenCast:Record(args)
 		MkLaunch{bg=1,cmd= "[[ -e '/tmp/ScreenCast.pid' ]] && kill \"$(cat /tmp/ScreenCast.pid)\"; " .. cmd .. " & echo $! > /tmp/ScreenCast.pid"   }()
 --	end
 end
+
+-- Screen Casting }}}
+---------------------
+
+------------------
+-- Screen Shot {{{
+
+-- TODO add event on scrot end,
+-- allowing effects to be added.
+-- TODO Delays?
+-- TODO Image Processing?
+-- TODO Formating/Container/Compression options?
+function ScreenCast:ScreenShot_via(args)
+	local args = args or {}
+	local cmd = args.cmd or self.screenshot.cmd or "scrot"
+	cmd = cmd .. " " .. (args.args or self.screenshot.args or "")
+	local file = args.file
+	if not args.file then
+		file = args.prefix or self.screenshot.prefix or "ScreenShot"
+		file = file .. (args.suffix or self.screenshot.suffix or "-" .. tostring(os.time()) )
+		file = file .. "." ..  (args.extention or self.screenshot.extention or "png" )
+		args.file = file
+	end
+	cmd = cmd .. " " .. file
+	args.cmd = cmd
+	self.events:poll("ScreenShot::Pending",args)
+	--io.popen() -- For processing images?
+	asyncshell.request( cmd, function()
+		self.events:poll("ScreenShot::Taken",args)
+	end)
+end
+
+function ScreenCast:ScreenShot(args)
+	local args = args or {}
+	args.type="screen"
+	self:ScreenShot_via(args)
+end
+function ScreenCast:SelectionShot(args)
+	local args = args or {}
+	args.args= " -s " .. (args.args or "")
+	args.type="selection"
+	args.show_pending = args.show_pending or true
+	self:ScreenShot_via(args)
+end
+
+function ScreenCast:X11Shot()
+	local args = args or {}
+	args.args= " -m " .. args.args
+	args.type="X11"
+	self:ScreenShot_via(args)
+end
+
+-- Screen Shot }}}
+------------------
 
 -- NOTE FIXME !!! 'Control' Must be pressed before 'Alt' !!! 'Alt' will mask further control chracter presses!!!
 function ScreenCast.plugin()
