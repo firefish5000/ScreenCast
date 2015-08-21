@@ -96,7 +96,8 @@ Usefull Provided methods include
 - mpv
 
 # EXAMPLE
-[Here is a high-quality video showing us in use](https://www.youtube.com/watch?v=PKh3Dn6zGqw) Note that youtube will probably autoselect a low res option, and all quality options may not be displayed.
+[Here is a high-resolution video showing us in use](https://www.youtube.com/watch?v=PKh3Dn6zGqw). Although it's not much, and the video fails to inform us of the keybindings in use, it is surprizingly of fun. I am enoying slacking off while staring at my infinit number of desktops, Whhaa haha aha ha (the character pictured and silently singing in the video gave a lot of evil laughs)! 
+Note that although I say it's high res, youtube will probably autoselect a low res option. And if you are the unlucky many, google will may use html5 video, and then only give 360p as other options for this video are property and not supported by normal firefox installs at least.  Once I understand whats supported, I will do a better demo and change encoding options. 
 TODO, add gif.
 
 
