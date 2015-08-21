@@ -17,6 +17,12 @@ local ScreenCast = {
 		imgw={},
 		textw={},
 	},
+	liveview = {
+		viewing=0,
+		icon='/usr/share/icons/gnome/256x256/apps/applets-screenshooter.png',
+		imgw={},
+		textw={},
+	},
 	screenshot = {
 		icon='/usr/share/icons/Faenza/apps/scalable/shotwell.svg',
 		imgw={},
@@ -85,6 +91,8 @@ function ScreenCast:init()
 	self.widget = wibox.layout.fixed.horizontal()
 	self:screencast_init()
 	self:screenshot_init()
+	self.widget:add(self.liveview.imgw)
+	self.widget:add(self.liveview.textw)
 	self.widget:add(self.screencast.imgw)
 	self.widget:add(self.screencast.textw)
 	self.widget:add(self.screenshot.imgw)
@@ -98,25 +106,107 @@ function ScreenCast:screencast_init()
 	-- Create Widgits
 	self.screencast.textw = wibox.widget.textbox()
 	self.screencast.imgw = wibox.widget.imagebox()
+	self.liveview.textw = wibox.widget.textbox()
+	self.liveview.imgw = wibox.widget.imagebox()
 
 	-- Create and Register Events
+	self.events:new_event("ScreenCast::Pending")
 	self.events:new_event("ScreenCast::StartRecording")
 	self.events:new_event("ScreenCast::StopRecording")
+	-- FIXME Live view and screencast need to know when they are killed externally
+	-- FIXME ESPECIALY when only one is killed. Eg, mpv is closed by user. Meanwhile, ffmpeg is waiting with its pipe... forever.... 
+	-- At least is what I am guessing is happening, because I 
+	self.events:new_event("LiveView::Pending")
+	self.events:new_event("LiveView::Start")
+	self.events:new_event("LiveView::Stop")
+	self.events:add_call("LiveView::Pending", function(args)
+		local file = args.output or "<NoOutput>"
+		if args.show_pending == false then
+			return
+		end
+		self.liveview.imgw:set_image(self.liveview.icon)
+		if args.selection ~= false then
+			self.liveview.textw:set_text(" Will do LiveView of Selection. ")
+		else
+			self.liveview.textw:set_text(" Starting Liveview ")
+		end
+	end)
+	self.events:add_call("LiveView::Start", function(args)
+		local file = args.output or "<NoOutput>"
+		self.liveview.viewing=1
+		self.liveview.imgw:set_image(self.liveview.icon)
+		self.liveview.textw:set_text(" LiveView Started! ")
+		execute_once(5, function()
+			if self.liveview.viewing==1 then
+				self.liveview.textw:set_text(" LiveViewing ")
+			end
+		end)
+		self.liveview.rec_args=args
+	end)
+	self.events:add_call("LiveView::Stop", function()
+		local file = self.screencast.rec_args.output or "<NoOutput>"
+		self.liveview.rec_args = nil
+		MkLaunch{bg=1,cmd="pkill -TERM -P \"$(cat /tmp/ScreenCastPreview.pid)\""   }()
+		self.liveview.viewing=0
+		self.liveview.imgw:set_image(self.liveview.icon)
+		self.liveview.textw:set_text(" LiveView Disconnnected ")
+		execute_once(3, function()
+			if self.liveview.viewing==0 then
+				self.liveview.imgw:set_image(nil)
+				self.liveview.textw:set_text("")
+			end
+		end)
+	end)
 
-	self.events:add_call("ScreenCast::StartRecording", function(args)
-		self.screencast.recording=1
+	self.events:add_call("ScreenCast::Pending", function(args)
+		local file = args.output or "<NoOutput>"
+		if args.show_pending == false then
+			return
+		end
 		self.screencast.imgw:set_image(self.screencast.icon)
-		self.screencast.textw:set_text(" Recording ")
+		if args.selection ~= false then
+			self.screencast.textw:set_text(" Taking SelectionCast. Will Record To: '" .. file .. "'")
+		else
+			self.screencast.textw:set_text(" Will Record To: '" .. file .. "'")
+		end
+	end)
+	-- Preliminary LiveView should be optional for selections
+	self.events:add_call("ScreenCast::Pending", function(args)
+		if args.preview == true then
+			self:LiveView(args)
+		end
 	end)
 	self.events:add_call("ScreenCast::StartRecording", function(args)
-		self:Record(args)
+		local file = args.output or "<NoOutput>"
+		self.screencast.recording=1
+		self.screencast.imgw:set_image(self.screencast.icon)
+		self.screencast.textw:set_text(" Recording To: '" .. file .. "'")
+		execute_once(5, function()
+			if self.screencast.recording==1 then
+				self.screencast.textw:set_text(" Recording ")
+			end
+		end)
+		self.screencast.rec_args=args
+	end)
+	self.events:add_call("ScreenCast::StartRecording", function(args)
+		if args.preview==true and args.selection==true then
+			self:LiveView(args)
+		end
 	end)
 	
 	self.events:add_call("ScreenCast::StopRecording", function()
-		MkLaunch{bg=1,cmd="kill \"$(cat /tmp/ScreenCast.pid)\""   }()
+		local file = self.screencast.rec_args.output or "<NoOutput>"
+		self.screencast.rec_args = nil
+		MkLaunch{bg=1,cmd="pkill -TERM -P \"$(cat /tmp/ScreenCast.pid)\""   }()
 		self.screencast.recording=0
-		self.screencast.imgw:set_image(nil)
-		self.screencast.textw:set_text("")
+		self.screencast.imgw:set_image(self.screencast.icon)
+		self.screencast.textw:set_text(" Recording saved at: '" .. file .. "'!")
+		execute_once(5, function()
+			if self.screencast.recording==0 then
+				self.screencast.imgw:set_image(nil)
+				self.screencast.textw:set_text("")
+			end
+		end)
 	end)
 	return self
 end
@@ -160,7 +250,7 @@ end
 
 function ScreenCast:start(args)
 	if self.screencast.recording ~= 1 then
-		self.events:poll("ScreenCast::StartRecording",args)
+		self:Record(args)
 	end
 end
 
@@ -170,9 +260,29 @@ function ScreenCast:stop()
 		self.events:poll("ScreenCast::StopRecording")
 	end
 end
+function ScreenCast:LiveView_Start(args)
+	if self.screencast.recording ~= 1 then
+		self:LiveView(args)
+	end
+end
+
+
+function ScreenCast:LiveView_Stop()
+	if self.screencast.recording == 1 then
+		self.events:poll("LiveView::Stop")
+	end
+end
+function ScreenCast:LiveView_toggle(args)
+	if self.liveview.viewing ~= 1 then
+		self:LiveView(args)
+	else
+		self.events:poll("LiveView::Stop")
+	end
+end
+
 function ScreenCast:toggle(args)
 	if self.screencast.recording ~= 1 then
-		self.events:poll("ScreenCast::StartRecording",args)
+		self:Record(args)
 	else
 		self.events:poll("ScreenCast::StopRecording")
 	end
@@ -182,34 +292,102 @@ end
 
 function ScreenCast:Record(args)
 	-- xrandr can be used for screen, if xregionsel falls through
-	local framerate		= args.framerate or 25
-	local size			= args.size or "\"$(xdpyinfo | grep 'dimensions' | awk '{print $2}' | head -n1)\""
-	local pos			= args.pos or "0,0"
-	local vcodec		= args.vcodec or "libx264"
-	local screen		= args.screen or ":0.0"
-	local name	= args.name or "~/ScreenCast"
-	local format		= args.format or "mkv"
-	local extra			= args.extra or "-vcodec libx264 -threads 0"
-	local selection		= args.selection or 0
+	local args = args or {}
+	args.framerate		= args.framerate or 25
+	args.size			= args.size or "\"$(xdpyinfo | grep 'dimensions' | awk '{print $2}' | head -n1)\""
+	args.pos			= args.pos or "0,0"
+	args.vcodec		= args.vcodec or "libx264"
+	args.screen		= args.screen or ":0.0"
+	args.basepath	= args.basepath or "~/ScreenCast"
+	args.format		= args.format or "mkv"
+	args.output		= args.output or (args.basepath .. "_" .. tostring(os.time()) .. "." .. args.format)
+	args.extra			= args.extra or "-vcodec libx264 -threads 0"
+	args.preview		= args.preview or false
+	args.selection		= args.selection or false
+	args.show_pending= args.show_pending or args.selection
 	-- TODO Make Preset local extra		= args.extra or "-vcodec libx264 -vpre lossless_ultrafast -threads 0"
---	return function(name)
-		local cmd
-		name = name .. "_" .. tostring(os.time())
---		-- Dont change default!
---		local pos = pos
---		local size = size
-		if selection == 1 then
+
+	-- FIXME Region Selector stops redraws untill region has been selects. Meaning we wont see the selection message....?.
+	self.events:poll("ScreenCast::Pending",args)
+	local cmd
+		if args.selection == true then
 			-- FIXME Notify is being sent after rect sel???? WHY??????
 			cmd = "for i in {0..3}; do selection=\"$(xregionsel -s | perl -pe 's{\\+(\\d+)\\+(\\d+)$}{ $1,$2}' || echo 'ERROR')\"; [[ \"$selection\" == 'ERROR' ]] || break ; sleep 0.1; done; size=\"${selection%% *}\"; pos=\"${selection##* }\"; "
-			cmd = cmd .. " ffmpeg -f x11grab -r " .. framerate
+			cmd = cmd .. " ffmpeg -f x11grab -r " .. args.framerate
 			cmd = cmd .. " -s \"${size}\" "
-			cmd = cmd .. " -i " .. screen .. "+${pos}" .. " " .. extra .. " " .. name .. "." .. format
+			cmd = cmd .. " -i " .. args.screen .. "+${pos}" .. " " .. args.extra .. " " .. args.output
 		else
-			cmd = "ffmpeg -f x11grab -r " .. framerate
-			cmd = cmd .. " -s " .. size
-			cmd = cmd .. " -i " .. screen .. "+" .. pos .. " " .. extra .. " " .. name .. "." .. format
+			cmd = "ffmpeg -f x11grab -r " .. args.framerate
+			cmd = cmd .. " -s " .. args.size
+			cmd = cmd .. " -i " .. args.screen .. "+" .. args.pos .. " " .. args.extra .. " " .. args.output
 		end
-		MkLaunch{bg=1,cmd= "[[ -e '/tmp/ScreenCast.pid' ]] && kill \"$(cat /tmp/ScreenCast.pid)\"; " .. cmd .. " & echo $! > /tmp/ScreenCast.pid"   }()
+		self.events:poll("ScreenCast::StartRecording",args)
+		MkLaunch{bg=1,cmd= "[[ -e '/tmp/ScreenCast.pid' ]] && pkill -TERM -P \"$(cat /tmp/ScreenCast.pid)\"; " .. cmd .. " & echo $! > /tmp/ScreenCast.pid"   }()
+--	end
+end
+-- When it comes to previewing, there are a number of extra questions we have to try to answer
+-- if the user doen't providew defaults.
+-- For one, we need o support multiple players, like vlc, mpv, mplayer, ffplayer, etc.
+-- Then there is means and quality of the preview stream.
+-- Are we just tapping into the normal capture?
+-- Shouldn we aim for live stream preview, which would need to bypass encoding and cache/buffers,
+-- or encoding preview, which will have a more of a delay as ffmpeg encodes it?
+
+-- If doing a live preview, how do we interact with the normal ffmpeg capture, if at all?
+-- does it do multiple outputes (from my attempts and understqanding, all are encoded at the same time at the same gereal location.
+-- Meaning 'live' stream will be just as slow as encoded stream)
+-- Do we output to a 'live' stream of sorts, such as a rtmp stream, and then have a player follow it and another ffmpeg process do normal encoding?
+-- Output a rawstream to 2 pipes and have player play one and ffmpeg encode the other?
+-- Output raw stream (for viewing, raw stream is quickest) to file, tail it withthe player, and encode with ffmpeg? Horible idea! 30 second raw video takes 2gb!
+--
+--The last option is to run two instances, which is the only option I can readily do atm. As succh, here is an example
+-- EXAMPLE using pipes and mpv
+-- ffmpeg -f x11grab -r 100 -s "3360x1080" -i :0.0 -preset ultrafast -f rawvideo pipe:1 |  mpv --no-cache --demuxer=rawvideo --demuxer-rawvideo-fps=125 --demuxer-rawvideo-mp-format=bgr0 --demuxer-rawvideo-codec=lavc:rawvideo --demuxer-rawvideo=w=3360:h=1080  --no-fs --geometry=840x270+1060+800 --force-window-position --name 'ScreenCastPreview' /dev/stdin
+-- NOTE we must make ScreenCastPreview floating in rules.lua (unfortunatly, it only matches the last class if multiple exist, and thus rule has to apply to mpv class...)
+-- You should also set the screen, width, and hight there.
+function ScreenCast:LiveView(args)
+	-- FIXME Record and LiveView are not easily configurable...
+	-- xrandr can be used for screen, if xregionsel falls through
+	--local args = args or {}
+	local args = {}
+	args.framerate		= args.framerate or 25
+	args.setup_cmds			= args.setup_cmds or "SIZE=\"$(xdpyinfo | grep 'dimensions' | awk '{print $2}' | head -n1 | tr -d '\n')\""
+	args.size			= args.size or "\"${SIZE}\""
+	local width			= '${SIZE%%x*}'
+	local height			= "${SIZE//*x}"
+	args.pos			= args.pos or "0,0"
+	args.vcodec			= args.vcodec or ""
+	args.screen			= args.screen or ":0.0"
+	args.output			= args.output or "pipe:1"
+	args.input			= args.input or "x11grab"
+	args.format			= args.format or "rawvideo"
+	args.extra			= args.extra or " -threads 0"
+	args.selection		= args.selection or false
+	args.player		= args.player or {}
+	args.player.cmd		= args.player.cmd or "mpv"
+	args.player.args		= args.player.args or "--no-cache --demuxer=rawvideo --demuxer-rawvideo-fps=125 --demuxer-rawvideo-mp-format=bgr0 --demuxer-rawvideo-codec=lavc:rawvideo --no-fs --geometry=840x270+1060+800 --force-window-position --name 'ScreenCastPreview'"
+	-- TODO make width/height/size a function. We pass wh, and user defined function returns required args if any.
+	-- TODO Perhaps all player options should work that way. and mayby even some ffmpeg options? Could add easy switching from ffmpeg and libav (they couldn't hijack ffmpeg, 
+	-- so they named themselevs after it's most popular library, probably to draw in confused users and developers who had problems running or building packages complaining about ffmpeg's "libav" missing)
+	args.player.width_arg		= args.player.width_arg or "--demuxer-rawvideo-w="
+	args.player.height_arg		= args.player.height_arg or "--demuxer-rawvideo-h="
+		local cmd
+--		-- normally this would be done by Record, but you can run LiveView standalone, so we still have it here.
+		if args.selection == true and args.preview ~= true then
+			-- FIXME Notify is being sent after rect sel???? WHY??????
+			cmd = "for i in {0..3}; do selection=\"$(xregionsel -s | perl -pe 's{\\+(\\d+)\\+(\\d+)$}{ $1,$2}' || echo 'ERROR')\"; [[ \"$selection\" == 'ERROR' ]] || break ; sleep 0.1; done; size=\"${selection%% *}\"; pos=\"${selection##* }\"; "
+			cmd = cmd .. " ffmpeg -f x11grab -r " .. args.framerate
+			cmd = cmd .. " -s \"${size}\" "
+			cmd = cmd .. " -i " .. args.screen .. "+${pos}" .. " " .. args.extra .. " -f " .. args.format .. args.output
+		else
+			cmd = "ffmpeg -f x11grab -r " .. args.framerate
+			cmd = cmd .. " -s " .. args.size
+			cmd = cmd .. " -i " .. args.screen .. "+" .. args.pos .. " " .. args.extra .. " -f " .. args.format .. " " .. args.output
+		end
+		cmd = cmd .." | ".. args.player.cmd .. " " .. args.player.args .. " " .. args.player.width_arg .. width .. " " .. args.player.height_arg .. height .. " /dev/stdin"
+		
+		cmd= args.setup_cmds .. "; [[ -e '/tmp/ScreenCastPreview.pid' ]] && pkill -TERM -P \"$(cat /tmp/ScreenCastPreview.pid)\"; { " .. cmd .. " ; } >/dev/null 2>/dev/null & echo $! > /tmp/ScreenCastPreview.pid"
+		MkLaunch{bg=1,cmd=cmd }()
 --	end
 end
 
@@ -257,9 +435,9 @@ function ScreenCast:SelectionShot(args)
 	self:ScreenShot_via(args)
 end
 
-function ScreenCast:X11Shot()
+function ScreenCast:X11Shot(args)
 	local args = args or {}
-	args.args= " -m " .. args.args
+	args.args= " -m " .. (args.args or "")
 	args.type="X11"
 	self:ScreenShot_via(args)
 end
@@ -268,17 +446,19 @@ end
 ------------------
 
 -- NOTE FIXME !!! 'Control' Must be pressed before 'Alt' !!! 'Alt' will mask further control chracter presses!!!
-function ScreenCast.plugin()
-	right_layout:add(self.widget)
-	Base:AddToType{AMacro:BuildNewKey{ Name="Screenshot",
-		{ {							}, "Print", function() end,MkLaunch{bg=1,cmd="scrot   "} },
-		{ {"Mod4"					}, "Print", function() end,MkLaunch{bg=1,cmd="scrot -m"} },
-		{ {"Control"				}, "Print", function() end,MkLaunch{bg=1,cmd="scrot -s"} },
+function ScreenCast:keys()
+	return unpack({
+		{ {							}, "Print", nil, function() self:ScreenShot{} end },
+		{ {"Mod4"					}, "Print", nil, function() self:X11Shot{} end },
+		{ {"Control"				}, "Print", nil, function() self:SelectionShot{} end },
 		-- Screen Cast
-		{ {"Mod1"					}, "Print", Launch_FFCast{} }, -- Same Problem, without wierd extra error error
-		{ {"Mod1", "Control"		}, "Print", Launch_FFCast{selection=1} }, -- rectangle selection
-	}}
-
+		{ {"Shift"					}, "Print", nil, function() self:toggle{} end }, -- Same Problem, without wierd extra error error
+		{ {"Shift", "Control"		}, "Print", nil, function() self:toggle{selection=true} end }, -- rectangle selection
+		{ {"Shift", "Mod4"			}, "Print", nil, function() self:toggle{preview=true} end }, -- rectangle selection
+		{ {"Shift","Mod4","Control"	}, "Print", nil, function() self:toggle{preview=true,selection=true} end}, -- rectangle selection
+		{ {"Mod1"					}, "Print", nil, function() self:LiveView_toggle{} end }, -- Same Problem, without wierd extra error error
+		{ {"Mod1", "Control"		}, "Print", nil, function() self:LiveView_toggle{selection=true} end }, -- rectangle selection
+	})
 end
 
 
