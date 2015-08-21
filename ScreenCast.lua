@@ -149,7 +149,7 @@ function ScreenCast:screencast_init()
 	end)
 	self.events:add_call("LiveView::Stop", function()
 		self.liveview.rec_args = nil
-		MkLaunch{bg=1,cmd="pkill -TERM -P \"$(cat /tmp/ScreenCastPreview.pid)\" ; kill -TERM \"$(cat /tmp/ScreenCastPreview.pid)\""   }()
+		MkLaunch{bg=1,cmd="pkill -TERM -P \"$(cat /tmp/ScreenCastPreview.pid)\" ;  kill -TERM \"$(cat /tmp/ScreenCastPreview.pid)\" "   }()
 		self.liveview.viewing=0
 		self.liveview.imgw:set_image(self.liveview.icon)
 		self.liveview.textw:set_text(" LiveView Disconnnected ")
@@ -351,7 +351,7 @@ function ScreenCast:Record(args)
 		cmd = cmd .. " -s " .. args.size
 		cmd = cmd .. " -i " .. args.screen .. "+" .. args.xpos .. "," .. args.ypos .. " " .. args.extra .. " " .. args.output
 		self.events:poll("ScreenCast::StartRecording",args)
-		MkLaunch{bg=1,cmd= "[[ -e '/tmp/ScreenCast.pid' ]] && pkill -TERM -P \"$(cat /tmp/ScreenCast.pid)\"; kill -TERM \"$(cat /tmp/ScreenCastPreview.pid)\" ; " .. cmd .. " & echo $! > /tmp/ScreenCast.pid"   }()
+		MkLaunch{bg=1,cmd= "[[ -e '/tmp/ScreenCast.pid' ]] && pkill -TERM -P \"$(cat /tmp/ScreenCast.pid)\" ; kill -TERM \"$(cat /tmp/ScreenCast.pid)\" ; " .. cmd .. " & echo $! > /tmp/ScreenCast.pid"   }()
 --	end
 end
 -- When it comes to previewing, there are a number of extra questions we have to try to answer
