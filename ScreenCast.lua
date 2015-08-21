@@ -52,9 +52,9 @@ local ScreenCast = {
 	},
 }
 
-local asyncshell = require("Modules/asyncshell")
+local asyncshell = asyncshell or require("Modules/asyncshell")
 -- Helpers currently writes in our enviorment, but extended helpers are return only.
-local ExtHelp = require("components/helpers")
+-- require("components/helpers")
 
 -----------------------
 -- Helper Functions {{{
@@ -486,7 +486,6 @@ function ScreenCast:LiveView(args)
 		-- No clue why,but Running as preview (when Record calls us), we cannot kill anythin?
 		cmd= args.setup_cmds .. "; [[ -e '/tmp/ScreenCastPreview.pid' ]] && { pkill -TERM -P \"$(cat /tmp/ScreenCastPreview.pid)\" ; kill -TERM \"$(cat /tmp/ScreenCastPreview.pid)\" ; } ; { " .. cmd .. " ; } >/dev/null 2>/dev/null & echo $! > /tmp/ScreenCastPreview.pid"
 		
-		ExtHelp:Print({file="/tmp/COMMAND",text=cmd})
 		self.events:poll("LiveView::Start",args)
 		MkLaunch{bg=1,cmd=cmd }()
 --	end
@@ -547,6 +546,7 @@ end
 ------------------
 
 -- NOTE FIXME !!! 'Control' Must be pressed before 'Alt' !!! 'Alt' will mask further control chracter presses!!!
+-- NOTE Key Press is nill because 'scrot -s' and 'xregionsel -s' both need the keyboard and mouse to be free
 function ScreenCast:keys()
 	return unpack({
 		{ {							}, "Print", nil, function() self:ScreenShot{} end },
