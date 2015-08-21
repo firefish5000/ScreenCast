@@ -40,7 +40,8 @@ local ScreenCast = {
 }
 
 local asyncshell = require("Modules/asyncshell")
-require("components/helpers")
+-- Helpers currently writes in our enviorment, but extended helpers are return only.
+local ExtHelp = require("components/helpers")
 
 -----------------------
 -- Helper Functions {{{
@@ -110,6 +111,9 @@ function ScreenCast:screencast_init()
 	self.liveview.imgw = wibox.widget.imagebox()
 
 	-- Create and Register Events
+	self.events:new_event("Error::SelectionFaild")
+	self.events:new_event("Error::SelectionRetry")
+
 	self.events:new_event("ScreenCast::Pending")
 	self.events:new_event("ScreenCast::StartRecording")
 	self.events:new_event("ScreenCast::StopRecording")
@@ -144,9 +148,8 @@ function ScreenCast:screencast_init()
 		self.liveview.rec_args=args
 	end)
 	self.events:add_call("LiveView::Stop", function()
-		local file = self.screencast.rec_args.output or "<NoOutput>"
 		self.liveview.rec_args = nil
-		MkLaunch{bg=1,cmd="pkill -TERM -P \"$(cat /tmp/ScreenCastPreview.pid)\""   }()
+		MkLaunch{bg=1,cmd="pkill -TERM -P \"$(cat /tmp/ScreenCastPreview.pid)\" ; kill -TERM \"$(cat /tmp/ScreenCastPreview.pid)\""   }()
 		self.liveview.viewing=0
 		self.liveview.imgw:set_image(self.liveview.icon)
 		self.liveview.textw:set_text(" LiveView Disconnnected ")
@@ -196,8 +199,7 @@ function ScreenCast:screencast_init()
 	
 	self.events:add_call("ScreenCast::StopRecording", function()
 		local file = self.screencast.rec_args.output or "<NoOutput>"
-		self.screencast.rec_args = nil
-		MkLaunch{bg=1,cmd="pkill -TERM -P \"$(cat /tmp/ScreenCast.pid)\""   }()
+		MkLaunch{bg=1,cmd="pkill -TERM -P \"$(cat /tmp/ScreenCast.pid)\"; kill -TERM \"$(cat /tmp/ScreenCast.pid)\""   }()
 		self.screencast.recording=0
 		self.screencast.imgw:set_image(self.screencast.icon)
 		self.screencast.textw:set_text(" Recording saved at: '" .. file .. "'!")
@@ -207,6 +209,12 @@ function ScreenCast:screencast_init()
 				self.screencast.textw:set_text("")
 			end
 		end)
+	end)
+	self.events:add_call("ScreenCast::StopRecording", function(args)
+		if self.screencast.rec_args.preview==true then
+			self.events:poll("LiveView::Stop")
+		end
+		self.screencast.rec_args = nil
 	end)
 	return self
 end
@@ -294,8 +302,17 @@ function ScreenCast:Record(args)
 	-- xrandr can be used for screen, if xregionsel falls through
 	local args = args or {}
 	args.framerate		= args.framerate or 25
-	args.size			= args.size or "\"$(xdpyinfo | grep 'dimensions' | awk '{print $2}' | head -n1)\""
-	args.pos			= args.pos or "0,0"
+	if (not args.size) or (not string.match(args.size,"^(%d+)x(%d+)$") ) then
+		local size_p = io.popen("xdpyinfo | grep 'dimensions' | awk '{print $2}' | head -n1 | tr -d '\n'")
+		args.size=size_p:read("*all") or nil
+		size_p:close()
+		args.size=args.size or "800x400"
+	end
+	args.width = args.width or string.match(args.size,"^(%d+)x")
+	args.height = args.height or string.match(args.size,"x(%d+)$")
+	args.xpos= args.xpos or 0
+	args.ypos= args.ypos or 0
+	
 	args.vcodec		= args.vcodec or "libx264"
 	args.screen		= args.screen or ":0.0"
 	args.basepath	= args.basepath or "~/ScreenCast"
@@ -312,17 +329,29 @@ function ScreenCast:Record(args)
 	local cmd
 		if args.selection == true then
 			-- FIXME Notify is being sent after rect sel???? WHY??????
-			cmd = "for i in {0..3}; do selection=\"$(xregionsel -s | perl -pe 's{\\+(\\d+)\\+(\\d+)$}{ $1,$2}' || echo 'ERROR')\"; [[ \"$selection\" == 'ERROR' ]] || break ; sleep 0.1; done; size=\"${selection%% *}\"; pos=\"${selection##* }\"; "
-			cmd = cmd .. " ffmpeg -f x11grab -r " .. args.framerate
-			cmd = cmd .. " -s \"${size}\" "
-			cmd = cmd .. " -i " .. args.screen .. "+${pos}" .. " " .. args.extra .. " " .. args.output
-		else
-			cmd = "ffmpeg -f x11grab -r " .. args.framerate
-			cmd = cmd .. " -s " .. args.size
-			cmd = cmd .. " -i " .. args.screen .. "+" .. args.pos .. " " .. args.extra .. " " .. args.output
+			for i=1,3 do
+				-- TODO Make selection another function. Make retries a event called on failure. Retiesexist because it is easy to hit an exta key, which disables selection.
+				local size_p = io.popen("xregionsel -s | tr -d '\n'")
+				local region = size_p:read("*all") or nil
+				size_p:close()
+				-- FIXME we can surely do this in one move
+				if string.match(region,'^%d+x%d+%+%d+%+%d+$') then
+					args.width, args.height, args.xpos, args.ypos = string.match(region,'^(%d+)x(%d+)%+(%d+)%+(%d+)$')
+					args.size= args.width .. "x" .. args.height
+					args.pos= args.xpos .. "," .. args.ypos
+					break
+				elseif i == 3 then
+					self.events:poll("Error::SelectionFaild")
+					return
+				end
+				self.events:poll("Error::SelectionRetry")
+			end
 		end
+		cmd = "ffmpeg -f x11grab -r " .. args.framerate
+		cmd = cmd .. " -s " .. args.size
+		cmd = cmd .. " -i " .. args.screen .. "+" .. args.xpos .. "," .. args.ypos .. " " .. args.extra .. " " .. args.output
 		self.events:poll("ScreenCast::StartRecording",args)
-		MkLaunch{bg=1,cmd= "[[ -e '/tmp/ScreenCast.pid' ]] && pkill -TERM -P \"$(cat /tmp/ScreenCast.pid)\"; " .. cmd .. " & echo $! > /tmp/ScreenCast.pid"   }()
+		MkLaunch{bg=1,cmd= "[[ -e '/tmp/ScreenCast.pid' ]] && pkill -TERM -P \"$(cat /tmp/ScreenCast.pid)\"; kill -TERM \"$(cat /tmp/ScreenCastPreview.pid)\" ; " .. cmd .. " & echo $! > /tmp/ScreenCast.pid"   }()
 --	end
 end
 -- When it comes to previewing, there are a number of extra questions we have to try to answer
@@ -349,13 +378,29 @@ function ScreenCast:LiveView(args)
 	-- FIXME Record and LiveView are not easily configurable...
 	-- xrandr can be used for screen, if xregionsel falls through
 	--local args = args or {}
+	local oargs = args or {}
 	local args = {}
+	if oargs.preview ~= true then
+		args = oargs
+	else
+		args.size	= oargs.size or nil
+		args.pos	= oargs.pos or nil
+		args.xpos	= oargs.xpos or nil
+		args.ypos	= oargs.ypos or nil
+		args.player = oargs.player or nil
+	end
 	args.framerate		= args.framerate or 25
 	args.setup_cmds			= args.setup_cmds or "SIZE=\"$(xdpyinfo | grep 'dimensions' | awk '{print $2}' | head -n1 | tr -d '\n')\""
-	args.size			= args.size or "\"${SIZE}\""
-	local width			= '${SIZE%%x*}'
-	local height			= "${SIZE//*x}"
-	args.pos			= args.pos or "0,0"
+	if (not args.size) or (not string.match(args.size,"^(%d+)x(%d+)$") ) then
+		local size_p = io.popen("xdpyinfo | grep 'dimensions' | awk '{print $2}' | head -n1 | tr -d '\n'")
+		args.size=size_p:read("*all") or nil
+		size_p:close()
+		args.size=args.size or "800x400"
+	end
+	args.width = args.width or string.match(args.size,"^(%d+)x")
+	args.height = args.height or string.match(args.size,"x(%d+)$")
+	args.xpos= args.xpos or 0
+	args.ypos= args.ypos or 0
 	args.vcodec			= args.vcodec or ""
 	args.screen			= args.screen or ":0.0"
 	args.output			= args.output or "pipe:1"
@@ -365,28 +410,71 @@ function ScreenCast:LiveView(args)
 	args.selection		= args.selection or false
 	args.player		= args.player or {}
 	args.player.cmd		= args.player.cmd or "mpv"
-	args.player.args		= args.player.args or "--no-cache --demuxer=rawvideo --demuxer-rawvideo-fps=125 --demuxer-rawvideo-mp-format=bgr0 --demuxer-rawvideo-codec=lavc:rawvideo --no-fs --geometry=840x270+1060+800 --force-window-position --name 'ScreenCastPreview'"
+	-- TODO Go back over --input  options. Looks like there are several ways to tie into/control mpv. 
+	--args.player.args		= args.player.args or "--no-cache --demuxer=rawvideo --demuxer-rawvideo-fps=125 --demuxer-rawvideo-mp-format=bgr0 --demuxer-rawvideo-codec=lavc:rawvideo --no-fs --geometry=840x270+1060+800 --force-window-position --name 'ScreenCastPreview'"
+	args.player.args		= args.player.args or "--no-cache --really-quiet --use-text-osd=no --no-osd-bar --no-osc --keepaspect-window --load-scripts=no --no-border --demuxer=rawvideo --demuxer-rawvideo-mp-format=bgr0 --demuxer-rawvideo-codec=lavc:rawvideo --no-fs --force-window-position --name 'ScreenCastPreview'"
 	-- TODO make width/height/size a function. We pass wh, and user defined function returns required args if any.
 	-- TODO Perhaps all player options should work that way. and mayby even some ffmpeg options? Could add easy switching from ffmpeg and libav (they couldn't hijack ffmpeg, 
 	-- so they named themselevs after it's most popular library, probably to draw in confused users and developers who had problems running or building packages complaining about ffmpeg's "libav" missing)
+	args.player.framerate_arg		= args.framerate_arg or "--demuxer-rawvideo-fps="
+	args.player.framerate		= args.framerate or math.ceil(tonumber(args.framerate) * 1.5) + 1
+	args.player.geometry_arg		= args.geometry_arg or "--geometry="
 	args.player.width_arg		= args.player.width_arg or "--demuxer-rawvideo-w="
 	args.player.height_arg		= args.player.height_arg or "--demuxer-rawvideo-h="
 		local cmd
 --		-- normally this would be done by Record, but you can run LiveView standalone, so we still have it here.
-		if args.selection == true and args.preview ~= true then
+		self.events:poll("LiveView::Pending",args)
+		if args.selection == true then
 			-- FIXME Notify is being sent after rect sel???? WHY??????
-			cmd = "for i in {0..3}; do selection=\"$(xregionsel -s | perl -pe 's{\\+(\\d+)\\+(\\d+)$}{ $1,$2}' || echo 'ERROR')\"; [[ \"$selection\" == 'ERROR' ]] || break ; sleep 0.1; done; size=\"${selection%% *}\"; pos=\"${selection##* }\"; "
-			cmd = cmd .. " ffmpeg -f x11grab -r " .. args.framerate
-			cmd = cmd .. " -s \"${size}\" "
-			cmd = cmd .. " -i " .. args.screen .. "+${pos}" .. " " .. args.extra .. " -f " .. args.format .. args.output
-		else
-			cmd = "ffmpeg -f x11grab -r " .. args.framerate
-			cmd = cmd .. " -s " .. args.size
-			cmd = cmd .. " -i " .. args.screen .. "+" .. args.pos .. " " .. args.extra .. " -f " .. args.format .. " " .. args.output
+			for i=1,3 do
+				-- TODO Make selection another function. Make retries a event called on failure. Retiesexist because it is easy to hit an exta key, which disables selection.
+				local size_p = io.popen("xregionsel -s | tr -d '\n'")
+				local region = size_p:read("*all") or nil
+				size_p:close()
+				-- FIXME we can surely do this in one move
+				if string.match(region,'^%d+x%d+%+%d+%+%d+$') then
+					args.width, args.height, args.xpos, args.ypos = string.match(region,'^(%d+)x(%d+)%+(%d+)%+(%d+)$')
+					args.size= args.width .. "x" .. args.height
+					args.pos= args.xpos .. "," .. args.ypos
+					break
+				elseif i == 3 then
+					self.events:poll("Error::SelectionFaild")
+					return
+				end
+				self.events:poll("Error::SelectionRetry")
+			end
 		end
-		cmd = cmd .." | ".. args.player.cmd .. " " .. args.player.args .. " " .. args.player.width_arg .. width .. " " .. args.player.height_arg .. height .. " /dev/stdin"
+		--args.player.geometry = args.player.geometry or (args.size .. "+" .. args.xpos .. "+" .. args.ypos)
+		-- Automatic options seems to have problems when used with selection? Once I figure it out ill use it by default for autoresize
+		--args.player.geometry = args.player.geometry or ("50%+" .. args.xpos .. "+" .. args.ypos)
+		if not args.player.width and not args.player.height then
+			local fw = tonumber(args.width)/2
+			local fh = tonumber(args.height)/2
+			if fw >= 10 and fh >= 10 then
+				args.player.width	= fw
+				args.player.height	= fh
+		 	end
+		end
+		args.player.width = args.player.width or args.width
+		args.player.height = args.player.height or args.height
+		-- I can easily do something like set it to 10 above and 10 to the left of the bottom right
+		-- However, we could also do that(and hardset our size/geomotry completly) in aweful.rules
+		-- Which is probably more appropriate. Us not touching it is the only easy way to enable us
+		-- to be posistioned over the spot we are screencasting. So at least make an option to not do it.
+		args.player.xpos = args.player.xpos or args.xpos
+		args.player.ypos = args.player.ypos or args.ypos
+		args.player.geometry = args.player.geometry or (args.player.width .. "x" .. args.player.height .. "+" .. args.player.xpos .. "+" .. args.player.ypos)
 		
-		cmd= args.setup_cmds .. "; [[ -e '/tmp/ScreenCastPreview.pid' ]] && pkill -TERM -P \"$(cat /tmp/ScreenCastPreview.pid)\"; { " .. cmd .. " ; } >/dev/null 2>/dev/null & echo $! > /tmp/ScreenCastPreview.pid"
+		cmd = "ffmpeg -f x11grab -r " .. args.framerate
+		cmd = cmd .. " -s " .. args.size
+		cmd = cmd .. " -i " .. args.screen .. "+" .. args.xpos .. "," .. args.ypos .. " " .. args.extra .. " -f " .. args.format .. " " .. args.output
+		cmd = cmd .." | ".. args.player.cmd .. " " .. args.player.args .. " " .. args.player.width_arg .. args.width .. " " .. args.player.height_arg .. args.height .. " " .. args.player.geometry_arg .. args.player.geometry .. " /dev/stdin"
+		
+		-- No clue why,but Running as preview (when Record calls us), we cannot kill anythin?
+		cmd= args.setup_cmds .. "; [[ -e '/tmp/ScreenCastPreview.pid' ]] && { pkill -TERM -P \"$(cat /tmp/ScreenCastPreview.pid)\" ; kill -TERM \"$(cat /tmp/ScreenCastPreview.pid)\" ; } ; { " .. cmd .. " ; } >/dev/null 2>/dev/null & echo $! > /tmp/ScreenCastPreview.pid"
+		
+		ExtHelp:Print({file="/tmp/COMMAND",text=cmd})
+		self.events:poll("LiveView::Start",args)
 		MkLaunch{bg=1,cmd=cmd }()
 --	end
 end
