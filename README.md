@@ -11,14 +11,16 @@ a ffcast and xrectsel and scrot based (and scrot like) X11 region selector. Howe
 
 Basic API
 Somewhere near the top of your awesome rc.lua add
+
 	ScreenCast=require("ScreenCast/ScreenCast")
 	ScreenCast:init()
 	-- Uses xrectsel by default. Uncomment this if you have xregionsel installed
 	-- ScreenCast.selection_cmd = "xregionsel -s | tr -d '\n'" -- Can also grab windows when clicked
 
 
-Add keybindings to us
+Add keybindings to us. 
 Here we bind to various PrintScreen combinations.
+
 	globalkey = { unpack(globalkeys),
 		{ {							}, "Print", nil, function() self:ScreenShot{} end },
 		{ {"Control"				}, "Print", nil, function() self:SelectionShot{} end },
