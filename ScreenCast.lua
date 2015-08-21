@@ -64,6 +64,8 @@ local ScreenCast = {
 		imgw={},
 		textw={},
 	},
+	-- selection_cmd = "xregionsel -s | tr -d '\n'", -- Can also grab windows when clicked
+	selection_cmd = "xrectsel | tr -d '\n'",
 	default	= { -- copied by new
 		-- TODO Add a means of clearing. default.clear? Perhaps copy IdleScript's Generative Functions
 		recording = 0,
@@ -367,7 +369,7 @@ function ScreenCast:Record(args)
 			-- FIXME Notify is being sent after rect sel???? WHY??????
 			for i=1,3 do
 				-- TODO Make selection another function. Make retries a event called on failure. Retiesexist because it is easy to hit an exta key, which disables selection.
-				local size_p = io.popen("xregionsel -s | tr -d '\n'")
+				local size_p = io.popen(self.selection_cmd)
 				local region = size_p:read("*all") or nil
 				size_p:close()
 				-- FIXME we can surely do this in one move
@@ -464,7 +466,7 @@ function ScreenCast:LiveView(args)
 			-- FIXME Notify is being sent after rect sel???? WHY??????
 			for i=1,3 do
 				-- TODO Make selection another function. Make retries a event called on failure. Retiesexist because it is easy to hit an exta key, which disables selection.
-				local size_p = io.popen("xregionsel -s | tr -d '\n'")
+				local size_p = io.popen(self.selection_cmd)
 				local region = size_p:read("*all") or nil
 				size_p:close()
 				-- FIXME we can surely do this in one move

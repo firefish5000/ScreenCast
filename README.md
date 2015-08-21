@@ -10,43 +10,13 @@ a ffcast and xrectsel and scrot based (and scrot like) X11 region selector. Howe
 # Usage
 
 Basic API
+Somewhere near the top of your awesome rc.lua add
+	ScreenCast=require("ScreenCast/ScreenCast")
+	ScreenCast:init()
+	-- Uses xrectsel by default. Uncomment this if you have xregionsel installed
+	-- ScreenCast.selection_cmd = "xregionsel -s | tr -d '\n'" -- Can also grab windows when clicked
 
-  ScreenCast=require("ScreenCast")
-  ScreenCast:init()
 
-  -- Take a ScreenShot
-  ScreenCast:ScreenShot{}
-  -- Draw a rectange and then take a ScreenShot
-  ScreenCast:ScreenShot{selected=true}
-  -- OR
-  ScreenCast:SelectionShot{}
-
-  -- ScreenCast/Capture to file
-  -- NOTE we only support one recording stream right now,
-  -- Consequtive Record calls will terminate previous ones first.
-  ScreenCast:Record{}
-  -- Draw a rectange and then ScreenCast/Capture to file
-  ScreenCast:Record{selected=1}
-  -- Draw a rectange and Display the contents of the rectangle in mpv while ScreenCast/Captureing the rectangle to a file
-  ScreenCast:Record{selected=1, preview=1}
-  
-  -- Display the contents of the Display in mpv
-  ScreenCast:LiveView{}
-  -- Draw a rectangle and then Display the contents of the rectangle in mpv
-  ScreenCast:LiveView{selected=1}
-
-  -- Start a new ScreenCast if not already recording
-  -- Takes same arguments as ScreenCast:Record
-  ScreenCast:Start{}
-  -- Stop ScreenCast if we are recording
-  -- Takes no arguments
-  ScreenCast:Stop{}
-  -- Toggle ScreenCast On/Off. Takes same arguments as ScreenCast:Record
-  ScreenCast:toggle{}
-
-  -- Toggle LiveView On/Off. Takes same arguments as ScreenCast:LiveView
-  ScreenCast:LiveView\_toggle{}
-  
 Add keybindings to us
 Here we bind to various PrintScreen combinations.
 	globalkey = { unpack(globalkeys),
@@ -65,8 +35,45 @@ Here we bind to various PrintScreen combinations.
 		{ {"Mod1"					}, "Print", nil, function() self:LiveView_toggle{} end },
 		{ {"Mod1", "Control"		}, "Print", nil, function() self:LiveView_toggle{selection=true} end }, -- rectangle selection
 	}
+
 Add widget to awesomewm taskbar
 	right_layout:add(ScreenCast.widget)
+
+# Provided Methods
+
+Usefull Provided methods include
+	-- Take a ScreenShot
+	ScreenCast:ScreenShot{}
+	-- Draw a rectange and then take a ScreenShot
+	ScreenCast:ScreenShot{selected=true}
+	-- OR
+	ScreenCast:SelectionShot{}
+
+	-- ScreenCast/Capture to file
+	-- NOTE we only support one recording stream right now,
+	-- Consequtive Record calls will terminate previous ones first.
+	ScreenCast:Record{}
+	-- Draw a rectange and then ScreenCast/Capture to file
+	ScreenCast:Record{selected=1}
+	-- Draw a rectange and Display the contents of the rectangle in mpv while ScreenCast/Captureing the rectangle to a file
+	ScreenCast:Record{selected=1, preview=1}
+  
+	-- Display the contents of the Display in mpv
+	ScreenCast:LiveView{}
+	-- Draw a rectangle and then Display the contents of the rectangle in mpv
+	ScreenCast:LiveView{selected=1}
+
+	-- Start a new ScreenCast if not already recording
+	-- Takes same arguments as ScreenCast:Record
+	ScreenCast:Start{}
+	-- Stop ScreenCast if we are recording
+	-- Takes no arguments
+	ScreenCast:Stop{}
+	-- Toggle ScreenCast On/Off. Takes same arguments as ScreenCast:Record
+	ScreenCast:toggle{}
+
+	-- Toggle LiveView On/Off. Takes same arguments as ScreenCast:LiveView
+	ScreenCast:LiveView\_toggle{}
 
 #Requires
 - asyncshell
