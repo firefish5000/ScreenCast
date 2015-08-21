@@ -7,7 +7,30 @@ local wibox = require("wibox")
 local naughty = require("naughty")
 local menubar = require("menubar")
 
-local Events = require("Objects/Events") -- Event handler
+-- Stolen from awesompd {{{
+
+local module_path = (...):match ("(.+/)[^/]+$") or ""
+
+-- Function for checking icons and modules. Checks if a file exists,
+-- and if it does, returns the path to file, nil otherwise.
+local function try_load(file)
+   if awful.util.file_readable(file) then
+      return file
+   end
+end
+
+-- Function for loading modules.
+local function try_require(module)
+   if try_load(awful.util.getdir("config") .. '/'..
+                        module_path .. module .. ".lua") then
+      return require(module_path .. module)
+   else
+      return require(module)
+   end
+end
+-- Stolen from awesompd }}}
+
+local Events = try_require("Events") -- Event handler
 
 -- TODO Multi Rec/LiveView support. Should be as easy as mktemp pid's, a kill/stopall function, and returning pid or uid 
 local ScreenCast = {
@@ -525,6 +548,11 @@ end
 function ScreenCast:ScreenShot(args)
 	local args = args or {}
 	args.type="screen"
+	if args.selection then
+		args.args= " -s " .. (args.args or "")
+		args.type="selection"
+		args.show_pending = args.show_pending or true
+	end
 	self:ScreenShot_via(args)
 end
 function ScreenCast:SelectionShot(args)
