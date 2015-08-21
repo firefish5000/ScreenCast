@@ -59,12 +59,16 @@ Here we bind to various PrintScreen combinations.
 - asyncshell
 
 # Dependencies
+
 ##ScreenShot
 - scrot
+
 ##ScreenCast
 - ffmpeg
+
 ##SelectionCast
 - xregionsel or xrectsel
+
 ##LiveView
 - ffmpeg
 - mpv
