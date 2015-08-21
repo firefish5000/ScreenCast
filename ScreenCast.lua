@@ -9,16 +9,29 @@ local menubar = require("menubar")
 
 local Events = require("Objects/Events") -- Event handler
 
+-- TODO Multi Rec/LiveView support. Should be as easy as mktemp pid's, a kill/stopall function, and returning pid or uid 
 local ScreenCast = {
+	-- TODO Icon preference order and Dynamic icon requests
+	-- (so if list given falls through, we still get something)
+	-- I have IconFinder.sh on my desktop, but a lua version would be better.
+	-- I think I saw one, only thing missing from it were scallables/svgs (my awesomewm
+	--   support's it, so I guess it's a newish feature? ) and command searches (looking at .desktop files
+	--   to try to find the best icon for an application. May be stored in odd places (possible eg. ~/opt/Tor/tor.svg))
+	-- and extended command icon searches (looking for deskop and icons files places they would generaly be, even if not 
+	-- "standard", or told about via a variable. For instance, desktop files may be found on the desktop! even if not in the
+	-- enviormental variable, ~/.local/share/applications may still contain necesary icons. these should be supported, though
+	-- at a lower preference level if not specified by standard enviormental vars)
 	widget={},
 	screencast = {
 		recording=0,
+		-- TODO Multiple icons: Recording, stopped/not-recording, paused (pause support?), Pending
 		icon='/usr/share/icons/gnome/48x48/actions/media-record.png',
 		imgw={},
 		textw={},
 	},
 	liveview = {
 		viewing=0,
+		-- TODO Multiple icons.
 		icon='/usr/share/icons/gnome/256x256/apps/applets-screenshooter.png',
 		imgw={},
 		textw={},
@@ -447,9 +460,9 @@ function ScreenCast:LiveView(args)
 		--args.player.geometry = args.player.geometry or (args.size .. "+" .. args.xpos .. "+" .. args.ypos)
 		-- Automatic options seems to have problems when used with selection? Once I figure it out ill use it by default for autoresize
 		--args.player.geometry = args.player.geometry or ("50%+" .. args.xpos .. "+" .. args.ypos)
-		if not args.player.width and not args.player.height then
-			local fw = tonumber(args.width)/2
-			local fh = tonumber(args.height)/2
+		if not args.selection and not args.player.width and not args.player.height then
+			local fw = math.ceil((args.width)/4)
+			local fh = math.ceil(tonumber(args.height)/4)
 			if fw >= 10 and fh >= 10 then
 				args.player.width	= fw
 				args.player.height	= fh
